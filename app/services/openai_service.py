@@ -4,10 +4,16 @@ from dotenv import load_dotenv
 import os
 import time
 import logging
+import requests  # Usaremos requests para interactuar con Ollama
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
+OLLAMA_MODEL_ID = os.getenv("OLLAMA_MODEL_ID")
+
+if not OLLAMA_MODEL_ID:
+    logging.error("OLLAMA_MODEL_ID is not set. Please check your .env file.")
+    raise ValueError("OLLAMA_MODEL_ID is required but not set.")
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
@@ -44,54 +50,42 @@ def store_thread(wa_id, thread_id):
 
 
 def run_assistant(thread, name):
-    # Retrieve the Assistant
-    assistant = client.beta.assistants.retrieve(OPENAI_ASSISTANT_ID)
+    """
+    Enviar una solicitud a Ollama para generar una respuesta basada en el modelo especificado.
+    """
+    url = "http://localhost:11434/generate"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": OLLAMA_MODEL_ID,
+        "prompt": f"Hola, {name}. {thread['content']}"
+    }
 
-    # Run the assistant
-    run = client.beta.threads.runs.create(
-        thread_id=thread.id,
-        assistant_id=assistant.id,
-        # instructions=f"You are having a conversation with {name}",
-    )
-
-    # Wait for completion
-    # https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps#:~:text=under%20failed_at.-,Polling%20for%20updates,-In%20order%20to
-    while run.status != "completed":
-        # Be nice to the API
-        time.sleep(0.5)
-        run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
-
-    # Retrieve the Messages
-    messages = client.beta.threads.messages.list(thread_id=thread.id)
-    new_message = messages.data[0].content[0].text.value
-    logging.info(f"Generated message: {new_message}")
-    return new_message
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()  # Lanza una excepción si la solicitud falla
+        data = response.json()
+        new_message = data.get("response", "No se pudo generar una respuesta.")
+        logging.info(f"Generated message: {new_message}")
+        return new_message
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error al comunicarse con Ollama: {e}")
+        raise
 
 
 def generate_response(message_body, wa_id, name):
     # Check if there is already a thread_id for the wa_id
     thread_id = check_if_thread_exists(wa_id)
 
-    # If a thread doesn't exist, create one and store it
+    # Si no existe un hilo, creamos uno
     if thread_id is None:
         logging.info(f"Creating new thread for {name} with wa_id {wa_id}")
-        thread = client.beta.threads.create()
-        store_thread(wa_id, thread.id)
-        thread_id = thread.id
-
-    # Otherwise, retrieve the existing thread
+        thread = {"id": wa_id, "content": message_body}  # Simulamos un hilo
+        store_thread(wa_id, thread["id"])
     else:
         logging.info(f"Retrieving existing thread for {name} with wa_id {wa_id}")
-        thread = client.beta.threads.retrieve(thread_id)
+        thread = {"id": thread_id, "content": message_body}  # Simulamos un hilo existente
 
-    # Add message to thread
-    message = client.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=message_body,
-    )
-
-    # Run the assistant and get the new message
+    # Ejecutar el asistente y obtener el nuevo mensaje
     new_message = run_assistant(thread, name)
 
     return new_message

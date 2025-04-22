@@ -1,5 +1,3 @@
-flask
-python-dotenv
-openai
-aiohttp
-requests
+Flask==2.3.2  # Framework web utilizado
+requests==2.31.0  # Para interactuar con Ollama
+python-dotenv  # Para manejar variables de entorno si es necesario
