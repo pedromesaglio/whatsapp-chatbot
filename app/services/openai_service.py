@@ -1,10 +1,14 @@
 from openai import OpenAI
+from colorama import init, Fore
 import shelve
 from dotenv import load_dotenv
 import os
 import time
 import logging
 import requests  # Usaremos requests para interactuar con Ollama
+
+# Inicializar colorama
+init()
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -14,7 +18,14 @@ if not OLLAMA_MODEL_ID:
     logging.error("OLLAMA_MODEL_ID is not set. Please check your .env file.")
     raise ValueError("OLLAMA_MODEL_ID is required but not set.")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Configurar cliente OpenAI con base_url local
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="pep",  # Clave de API ficticia
+)
+
+# Esperar a que el servidor esté listo
+time.sleep(5)
 
 
 def upload_file(path):
@@ -53,7 +64,7 @@ def run_assistant(thread, name):
     """
     Enviar una solicitud a Ollama para generar una respuesta basada en el modelo especificado.
     """
-    url = "http://localhost:11434/generate"
+    url = "http://localhost:11434/v1"  
     headers = {"Content-Type": "application/json"}
     payload = {
         "model": OLLAMA_MODEL_ID,
@@ -89,3 +100,40 @@ def generate_response(message_body, wa_id, name):
     new_message = run_assistant(thread, name)
 
     return new_message
+
+
+def process_prompts():
+    """
+    Procesar una lista de prompts y generar respuestas usando el modelo especificado.
+    """
+    prompts = [
+        "what is ROI in the context of finance, provide a worked example?",
+        "define the efficient frontier in the context of finance",
+        "what is glass stegal?",
+        "how does derivative pricing work?",
+    ]
+
+    for prompt in prompts:
+        print(Fore.LIGHTMAGENTA_EX + prompt, end="\n")
+        try:
+            response = client.chat.completions.create(
+                model="llama.cpp/models/mistral-7b-instruct-v0.1.Q4_0.gguf",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                stream=True,
+                max_tokens=1000,
+            )
+            for chunk in response:
+                if chunk.choices[0].delta.content is not None:
+                    print(
+                        Fore.LIGHTBLUE_EX + chunk.choices[0].delta.content,
+                        end="",
+                        flush=True,
+                    )
+            print("\n")
+        except Exception as e:
+            logging.error(f"Error processing prompt '{prompt}': {e}")

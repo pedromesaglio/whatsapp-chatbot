@@ -11,7 +11,6 @@ from .utils.whatsapp_utils import (
 
 webhook_blueprint = Blueprint("webhook", __name__)
 
-
 def handle_message():
     """
     Handle incoming webhook events from the WhatsApp API.
@@ -27,7 +26,7 @@ def handle_message():
         response: A tuple containing a JSON response and an HTTP status code.
     """
     body = request.get_json()
-    # logging.info(f"request body: {body}")
+    logging.info(f"Received request body: {body}")
 
     # Check if it's a WhatsApp status update
     if (
@@ -41,10 +40,11 @@ def handle_message():
 
     try:
         if is_valid_whatsapp_message(body):
+            logging.info("Valid WhatsApp message received. Processing...")
             process_whatsapp_message(body)
             return jsonify({"status": "ok"}), 200
         else:
-            # if the request is not a WhatsApp API event, return an error
+            logging.warning("Received an invalid WhatsApp API event.")
             return (
                 jsonify({"status": "error", "message": "Not a WhatsApp API event"}),
                 404,
@@ -52,38 +52,52 @@ def handle_message():
     except json.JSONDecodeError:
         logging.error("Failed to decode JSON")
         return jsonify({"status": "error", "message": "Invalid JSON provided"}), 400
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 
-# Required webhook verifictaion for WhatsApp
+# Required webhook verification for WhatsApp
 def verify():
-    # Parse params from the webhook verification request
+    """
+    Verifies the webhook with the token provided by WhatsApp.
+    """
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
-    # Check if a token and mode were sent
+
     if mode and token:
-        # Check the mode and token sent are correct
         if mode == "subscribe" and token == current_app.config["VERIFY_TOKEN"]:
-            # Respond with 200 OK and challenge token from the request
             logging.info("WEBHOOK_VERIFIED")
             return challenge, 200
         else:
-            # Responds with '403 Forbidden' if verify tokens do not match
-            logging.info("VERIFICATION_FAILED")
+            logging.warning("Verification failed: Invalid token.")
             return jsonify({"status": "error", "message": "Verification failed"}), 403
     else:
-        # Responds with '400 Bad Request' if verify tokens do not match
-        logging.info("MISSING_PARAMETER")
+        logging.warning("Verification failed: Missing parameters.")
         return jsonify({"status": "error", "message": "Missing parameters"}), 400
 
 
 @webhook_blueprint.route("/webhook", methods=["GET"])
 def webhook_get():
+    """
+    Handles the GET request for webhook verification.
+    """
     return verify()
+
 
 @webhook_blueprint.route("/webhook", methods=["POST"])
 @signature_required
 def webhook_post():
+    """
+    Handles the POST request for incoming webhook events.
+    """
     return handle_message()
 
-
+# Register the blueprint in the application
+def register_blueprints(app):
+    """
+    Registers all blueprints in the Flask application.
+    """
+    app.register_blueprint(webhook_blueprint, url_prefix="/webhook")
+    logging.info("Webhook blueprint registered successfully.")
